@@ -1,0 +1,507 @@
+using Sandbox.Common.ObjectBuilders;
+using SKONanobotBuildAndRepairSystem.Cluster;
+using SKONanobotBuildAndRepairSystem.Handlers;
+using SKONanobotBuildAndRepairSystem.Models;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using VRage.Game;
+using VRage.Game.Components;
+using VRage.Game.ModAPI;
+using VRage.ModAPI;
+using VRage.Utils;
+using VRageMath;
+using IMyShipWelder = Sandbox.ModAPI.IMyShipWelder;
+using MyInventoryItem = VRage.Game.ModAPI.Ingame.MyInventoryItem;
+
+namespace SKONanobotBuildAndRepairSystem
+{
+    [MyEntityComponentDescriptor(typeof(MyObjectBuilder_ShipWelder), false, "SELtdLargeNanobotBuildAndRepairSystem", "SELtdSmallNanobotBuildAndRepairSystem")]
+    public partial class NanobotSystem : MyGameLogicComponent
+    {
+        public enum WorkingState
+        {
+            Invalid = 0, NotReady = 1, Idle = 2, Welding = 3, NeedWelding = 4, MissingComponents = 5, Grinding = 6, NeedGrinding = 7, InventoryFull = 8, LimitsExceeded = 9
+        }
+
+        public const int WELDER_RANGE_DEFAULT_IN_M = 100; // *2 = AreaSize
+        public const int WELDER_RANGE_MAX_IN_M = 2000;
+        public const int WELDER_RANGE_MIN_IN_M = 2;
+        public const int WELDER_OFFSET_DEFAULT_IN_M = 0;
+        public const int WELDER_OFFSET_MAX_DEFAULT_IN_M = 200;
+        public const int WELDER_OFFSET_MAX_IN_M = 2000;
+
+        public const float WELDING_GRINDING_MULTIPLIER_MIN = 0.1f;
+        public const float WELDING_GRINDING_MULTIPLIER_MAX = 100f;
+
+        public const float WELDER_REQUIRED_ELECTRIC_POWER_STANDBY_DEFAULT = 50.0f / 1000; // 50 kW
+        public const float WELDER_REQUIRED_ELECTRIC_POWER_WELDING_DEFAULT = 200.0f / 1000; // 200 kW
+        public const float WELDER_REQUIRED_ELECTRIC_POWER_GRINDING_DEFAULT = 200.0f / 1000; // 200 kW
+        public const float WELDER_REQUIRED_ELECTRIC_POWER_TRANSPORT_DEFAULT = 100.0f / 1000; // 100 kW
+        public const float WELDER_TRANSPORTSPEED_METER_PER_SECOND_DEFAULT = 50f;
+        public const float WELDER_TRANSPORTVOLUME_DIVISOR = 10f;
+        public const float WELDER_TRANSPORTVOLUME_MAX_MULTIPLIER = 8f;
+        public const float WELDER_AMOUNT_PER_SECOND = 4f;
+        public const float WELDER_MAX_REPAIR_BONE_MOVEMENT_SPEED = 0.2f;
+        public const float GRINDER_AMOUNT_PER_SECOND = 6f;
+        public const float WELDER_SOUND_VOLUME = 2f;
+
+        private const int MaxPossibleWeldTargets = 1024;
+        private const int MaxPossibleGrindTargets = 256;
+        private const int MaxPossibleFloatingTargets = 16;
+
+        private const int TransmitStateMinIntervalSeconds = 1;
+        private const int TransmitStateMaxIntervalSeconds = 4;
+        private const int TransmitSettingsIntervalSeconds = 1;
+        // BUG-260612.23: COLLECT_FLOATINGOBJECTS_SIMULTANEOUSLY (50) removed — it was
+        // unreachable (the floating list is capped at MaxPossibleFloatingTargets).
+
+        public static readonly MyDefinitionId ElectricityId = new MyDefinitionId(typeof(VRage.Game.ObjectBuilders.Definitions.MyObjectBuilder_GasProperties), "Electricity");
+        internal bool CreativeModeActive = false;
+
+        private static readonly MyStringId RangeGridResourceId = MyStringId.GetOrCompute("WelderGrid");
+
+        // PERF-10: per-instance Random seeded from the welder's EntityId. Random is not
+        // thread-safe; the static instance previously shared across all BaRs assumed all
+        // call sites stayed on the main thread. A per-instance Random eliminates that
+        // implicit constraint and decorrelates the jitter so two BaRs with identical
+        // call patterns don't draw identical sequences. EntityId is set by the engine
+        // before Init runs, so the seed is stable per BaR for the session lifetime.
+        private Random _RandomDelay;
+
+        private Stopwatch _DelayWatch = new Stopwatch();
+        private int _Delay = 0;
+
+        private volatile bool _AsyncUpdateSourcesAndTargetsRunning = false;
+        private volatile bool _InitialScanCompleted = false;
+        private volatile bool _PushTargetsFull = false;
+        private long _PushTargetsFullSignature;
+        private TimeSpan _PushTargetsFullSince;
+
+        // BUG-260612.26: push attempts/successes accumulated across calls until the
+        // chunked-push cursor wraps — the "all targets full" verdict needs a FULL
+        // inventory pass, not a 4-item sample of possibly sorter-blocked head items.
+        private bool _PushAttemptedSinceWrap;
+        private bool _PushAnySinceWrap;
+
+        // BUG-162: round-robin cursor for ServerTryPushInventory chunking across ticks.
+        private int _PushItemCursor = 0;
+
+        /// <summary>
+        /// When true, the welding loop found nothing on its last full iteration
+        /// (all targets grid-limited or assigned to other systems). The loop is
+        /// skipped until the target list hash changes (i.e., a new scan completes).
+        /// </summary>
+        private bool _weldLoopExhausted = false;
+        private long _weldExhaustedAtHash;
+        private TimeSpan _weldExhaustedAtTime;
+
+        /// <summary>
+        /// BUG-260610.10: set by ServerDoWeld when the proj-build budget gate
+        /// (Mod.TryClaimProjBuildSlot) rejected the build this tick. Lets the weld
+        /// loop distinguish "budget-deferred" from "can't weld" so a buildable
+        /// projected block is retried next tick instead of being parked in the
+        /// 15 s global failure cooldown. Main-thread only.
+        /// </summary>
+        private bool _projBuildSlotDeferred = false;
+
+        /// <summary>
+        /// BUG-260612.10: set by ServerDoGrind when a janitor DisableOnly/HackOnly
+        /// target reached its threshold — finished, not failed. The caller removes it
+        /// from the lists instead of letting the picker re-claim it (and burn a grind
+        /// slot) every tick until the next scan. Main-thread only.
+        /// </summary>
+        private bool _grindJanitorDone = false;
+
+        /// <summary>FEAT-076: same as _weldLoopExhausted, for the grind loop.</summary>
+        private bool _grindLoopExhausted = false;
+        private long _grindExhaustedAtHash;
+        private int _grindExhaustedSaturatedCount;
+        private TimeSpan _grindExhaustedAtTime;
+
+        /// <summary>
+        /// BUG-260511.16: how long an exhausted BaR may fast-skip before re-iterating.
+        /// FEAT-076 invalidates on target-list hash change or saturation count change,
+        /// but BlockSystemAssigningHandler TTL claim expiry is invisible to both —
+        /// without a time-based retry, BaRs that exhausted while many blocks were
+        /// claimed stay exhausted long after those claims drain (until the next
+        /// cluster scan bumps the hash, ~5–10 s). The retry interval is a fraction
+        /// of AssignmentTtlSeconds so a BaR re-checks at least once per claim
+        /// lifetime.
+        /// </summary>
+        private static TimeSpan ExhaustedRetryInterval
+        {
+            get { return TimeSpan.FromSeconds(Math.Max(1, Mod.Settings.AssignmentTtlSeconds / 3.0)); }
+        }
+
+        /// <summary>
+        /// BUG-260511.15: timestamp of the cluster result this BaR has actually
+        /// applied (not the same as `_LastTargetsUpdate`, which is bumped even
+        /// when the apply was skipped). Members compare against
+        /// `cluster.GetResult().Timestamp` to detect a freshly-published result
+        /// and fire `AsyncApplyClusterResults` immediately, instead of waiting
+        /// up to `effectiveTargetInterval` for their own poll interval.
+        /// </summary>
+        internal TimeSpan _lastAppliedResultTimestamp = TimeSpan.Zero;
+
+        /// <summary>
+        /// BUG-260511.14: reset both loop-exhausted flags so the next picker tick
+        /// performs a full iteration. Called from Mod.SettingsChanged when
+        /// MaxSystemsPerTargetGrid changes in either direction — the
+        /// FEAT-076 fast-skip's saturated-count guard can match a stale
+        /// exhausted state when the limit comes back up, leaving the BaR
+        /// permanently fast-skipping until some other trigger invalidates it.
+        /// </summary>
+        internal void ResetLoopExhaustedFlags()
+        {
+            _weldLoopExhausted = false;
+            _grindLoopExhausted = false;
+        }
+
+        /// <summary>
+        /// BUG-260511.19: removes the block (matched by grid id + Position, NOT
+        /// reference) from this BaR's grind target list. Called by a cluster
+        /// member that just ground a block to completion so OTHER members in the
+        /// cluster don't walk past it as a closed-FatBlock entry. Reference
+        /// equality is unreliable across BaRs because each BaR's
+        /// ApplyClusterResultToSelf wraps shared cluster candidates in fresh
+        /// TargetBlockData instances; only grid+position is stable.
+        /// </summary>
+        internal void RemoveGrindTargetByPosition(long gridEntityId, VRageMath.Vector3I position)
+        {
+            lock (State.PossibleGrindTargets)
+            {
+                for (int i = State.PossibleGrindTargets.Count - 1; i >= 0; i--)
+                {
+                    var t = State.PossibleGrindTargets[i];
+                    if (t == null || t.Block == null || t.Block.CubeGrid == null) continue;
+                    if (t.Block.CubeGrid.EntityId == gridEntityId
+                        && t.Block.Position.X == position.X
+                        && t.Block.Position.Y == position.Y
+                        && t.Block.Position.Z == position.Z)
+                    {
+                        State.PossibleGrindTargets.RemoveAt(i);
+                        // BUG-260610.33: RebuildHash (not ChangeHash) so CurrentCount is
+                        // refreshed too — a stale too-high count costs the idle fast-path
+                        // and saturation gates until the next scan. Already under the lock,
+                        // low rate, so the rebuild is cheap.
+                        State.PossibleGrindTargets.RebuildHash();
+                        return;
+                    }
+                }
+            }
+        }
+        // Background-scan-thread-only staging lists; swapped into the published State.*
+        // / _PossibleSources / _PossiblePushTargets under their locks. Don't touch from
+        // the main thread — read consumers go through the published collections.
+        private List<TargetBlockData> _TempPossibleWeldTargets = new List<TargetBlockData>();
+        private List<TargetBlockData> _TempPossibleGrindTargets = new List<TargetBlockData>();
+        private List<TargetEntityData> _TempPossibleFloatingTargets = new List<TargetEntityData>();
+        private List<IMyInventory> _TempPossibleSources = new List<IMyInventory>();
+        private List<IMyInventory> _TempPossiblePushTargets = new List<IMyInventory>();
+
+        // BUG-260610.22: main-thread pick buffer for the collect loop — targets are
+        // selected under the State.PossibleFloatingTargets lock, the engine work
+        // (inventory transfers, entity deletion) then runs outside it. Cleared after
+        // each pass so entity references aren't pinned between ticks.
+        private readonly List<TargetEntityData> _TempCollectTargets = new List<TargetEntityData>();
+
+        // Locality-aware grind sorting: after destroying a block, prefer nearby blocks
+        // within the same distance band. Set on main thread, read on background scan thread.
+        // BUG-260612.33: flag is volatile and always written AFTER the position, so a
+        // scan thread seeing true also sees a complete (possibly stale, never torn-
+        // and-trusted) position. Sort hint only, so stale is fine.
+        internal Vector3D _LastGrindWorldPosition;
+        internal volatile bool _HasLastGrindPosition;
+
+        // Snapshot of cluster member area centers; null on solo scans.
+        private List<Vector3D> _ClusterMemberAreaCenters;
+
+        // BUG-096: snapshot of each member's working-area OBB so SortAndCapGridCandidates
+        // can drop unreachable candidates before farthest-first sorting.
+        private List<MyOrientedBoundingBoxD> _ClusterMemberAreaBoxes;
+
+        // BUG-260610.13: cluster-membership snapshot taken on the MAIN thread in
+        // StartAsyncClusterScan and read by the background AsyncClusterScan.
+        // RebuildClusters mutates cluster.Members (~2 s cadence) on the main thread,
+        // so the background scan must never iterate the live list. Single scan in
+        // flight per BaR (re-entry guard), so reuse is safe.
+        private readonly List<NanobotSystem> _ScanMemberSnapshot = new List<NanobotSystem>();
+
+        // BUG-260610.29: projector cold-start tuning. The buildable-projector check's
+        // BoundingBox phase does an entity query + per-grid terminal enumeration on
+        // the MAIN thread, so it is throttled (cached verdict in between), and the
+        // idle-backoff reset is one-shot per buildable observation so a projector
+        // that stays buildable-but-unworkable can't defeat the FEAT-071 backoff
+        // forever. Re-armed when the projector reads non-buildable again.
+        private bool _projectorColdStartArmed = true;
+        private TimeSpan _lastProjectorPhase2Check;
+        private bool _lastProjectorPhase2Result;
+        private static readonly TimeSpan ProjectorPhase2CheckInterval = TimeSpan.FromSeconds(5);
+
+        // BUG-110: reusable scan-thread pools (eliminate per-scan allocations).
+        private List<IMyCubeGrid> _ScanGridsBuffer;
+        private List<IMyInventory> _ScanSourcesBuffer;
+        private Dictionary<IMySlimBlock, double> _ScanPreSortDistances;
+        // AsyncScanForSources reusable traversal state.
+        private HashSet<long> _ScanSourceVisitedGridIds;
+        private Queue<IMyCubeGrid> _ScanSourceGridQueue;
+        // BUG-119: O(1) dedup set for AddIfConnectedToInventory.
+        private HashSet<IMyInventory> _ScanSourceDedupSet;
+        // AsyncAddBlocksOfBox reusable sort buffers (only used when GrindSmallestGridFirst flag is set).
+        private List<IMyEntity> _ScanSortedGrids;
+        private List<IMyEntity> _ScanNonGridEntities;
+
+        // Reusable pools for TruncateGridAware — avoids 8 allocations per ApplyClusterResultToSelf call.
+        private HashSet<long> _truncateGridIds = new HashSet<long>();
+        private Dictionary<long, int> _truncateKeptPerGrid = new Dictionary<long, int>();
+        private List<TargetBlockData> _truncateKept = new List<TargetBlockData>();
+        private List<TargetBlockData> _truncateOverflow = new List<TargetBlockData>();
+
+        // BUG-091: per-grid min-distance for GrindSmallestGridFirst spatial tiebreak.
+        private Dictionary<long, double> _gridMinDistLookup = new Dictionary<long, double>();
+
+        // BUG-099/100: per-candidate distance and priority caches populated during the
+        // partition pass and read by the sort comparator (saves recomputing per compare).
+        private Dictionary<IMySlimBlock, double> _sortCandidateDistances = new Dictionary<IMySlimBlock, double>();
+        private Dictionary<IMySlimBlock, int> _sortCandidatePriorities = new Dictionary<IMySlimBlock, int>();
+
+        // BUG-260610.31: server-side rate limit for MSGID_BLOCK_SETTINGS_FROM_CLIENT.
+        // Legit clients gate sends on a 1 s transmit timer; anything faster is dropped
+        // by NetworkMessagingHandler to stop spam from costing an XML save + broadcast
+        // per message. Server main thread only.
+        // BUG-260824.8: rate-limit window per sender, not per block — a shared window
+        // silently dropped a second player's concurrent terminal change.
+        internal Dictionary<ulong, TimeSpan> _lastClientSettingsAppliedBySender = new Dictionary<ulong, TimeSpan>();
+
+        // Precomputed per-tick set of grid IDs definitely over MaxSystemsPerTargetGrid.
+        // Rebuilt by _gridSaturation.Rebuild(), used as fast-path in IsGridOverSystemLimit().
+        private readonly GridSaturationTracker _gridSaturation = new GridSaturationTracker();
+
+        // BUG-115: persistent skip set for projected blocks that threw NRE in proj.Build.
+        private readonly HashSet<string> _BrokenProjBuildKeys = new HashSet<string>();
+
+        // BUG-120: silent proj.Build failure counter; promoted to _BrokenProjBuildKeys
+        // after PROJ_BUILD_MAX_SILENT_FAILS consecutive failures.
+        private readonly Dictionary<string, int> _ProjBuildSilentFailCount = new Dictionary<string, int>();
+        private const int PROJ_BUILD_MAX_SILENT_FAILS = 3;
+
+        // BUG-120: owner the broken-block caches are scoped to; cleared on owner change.
+        private long _BrokenCacheOwnerId = long.MinValue;
+
+        /// <summary>
+        /// Tracks grids that were scanned and had no weld/grind targets.
+        /// Key: grid EntityId, Value: playTime when grid was found empty.
+        /// </summary>
+        private ConcurrentDictionary<long, TimeSpan> _EmptyGridCache = new ConcurrentDictionary<long, TimeSpan>();
+        public int EmptyGridCacheCount { get { return _EmptyGridCache.Count; } }
+
+        // REF-2: pooled scratch for CleanupEmptyGridCache. Per-BaR scan dispatch is
+        // serialised, so a single instance field is safe from concurrent access.
+        private List<long> _emptyGridExpiredKeys;
+
+        /// <summary>FEAT-073: filter predicate for fat-block-only lists.</summary>
+        private static readonly Func<IMySlimBlock, bool> _fatBlockFilter = block => block.FatBlock != null;
+
+        private IMyShipWelder _Welder;
+
+        public bool IsEnabled
+        {
+            get { return _Welder != null && _Welder.Enabled; }
+        }
+
+        public IMyInventory _TransportInventory;
+        private Effects _Effects = new Effects();
+
+        private bool _IsInit;
+        private List<IMyInventory> _PossibleSources = new List<IMyInventory>();
+        private List<IMyInventory> _PossiblePushTargets = new List<IMyInventory>();
+        private Dictionary<string, int> _TempMissingComponents = new Dictionary<string, int>();
+        private List<MyInventoryItem> _TempInventoryItems = new List<MyInventoryItem>();
+        private List<MyInventoryItem> _TempPullInventoryItems = new List<MyInventoryItem>();
+        // BUG-133: source-walk inversion buffers (one pass over sources, dict lookup against needs).
+        private Dictionary<string, int> _TempPullRemaining = new Dictionary<string, int>();
+        private Dictionary<string, Sandbox.Definitions.MyPhysicalItemDefinition> _TempPullDefs =
+            new Dictionary<string, Sandbox.Definitions.MyPhysicalItemDefinition>();
+        // BUG-134: last successful source; tried first next call (temporal locality).
+        private VRage.Game.ModAPI.IMyInventory _LastSuccessfulSource;
+        // BUG-136: round-robin cursor for the capped source walk.
+        private int _NextPullSourceIdx;
+
+        // BUG-260824.2: aggregate missing-components rebuild (cadence marker + reusable buffers).
+        private TimeSpan _NextMissingAggregateAt;
+        private List<TargetBlockData> _AggTargetsSnapshot = new List<TargetBlockData>();
+        private Dictionary<string, int> _AggMissingNeed = new Dictionary<string, int>();
+        private Dictionary<string, int> _AggPerBlockMissing = new Dictionary<string, int>();
+        private List<IMyInventory> _AggSourcesSnapshot = new List<IMyInventory>();
+
+        private int _UpdateEffectsInterval;
+        private bool _UpdateCustomInfoNeeded;
+        internal bool _firstSettingsReceived = false;
+        private float _MaxTransportVolume;
+        private float _MaxWeldTransportVolume;
+        private float _MaxGrindTransportVolume;
+
+
+        private TimeSpan _LastSourceUpdate = -Mod.Settings.SourcesUpdateInterval;
+        private TimeSpan _LastTargetsUpdate;
+        public TimeSpan LastTargetsUpdate { get { return _LastTargetsUpdate; } }
+        private TimeSpan _UpdateCustomInfoLast;
+        private TimeSpan _UpdatePowerSinkLast;
+        private TimeSpan _UpdateSettingsTransmitLast;
+        private TimeSpan _UpdateStateTransmitLast;
+        private int _UpdateStateTransmitInterval;
+
+        // FEAT-038/BUG-150: progressive backoff fingerprint (long, content-aware).
+        private long _lastTransmittedFingerprint;
+        private int _transmitBackoffMultiplier = 1;
+
+        private TimeSpan _PeriodicExtraChecksLast;
+        private long _lastWorkCycle = -1;
+
+        public TimeSpan _TryAutoPushInventoryLast;
+        public TimeSpan _TryPushInventoryLast;
+
+        private Action<Sandbox.ModAPI.IMyTerminalBlock> _onEnabledChanged;
+        private Action<IMyCubeBlock> _onIsWorkingChanged;
+
+        private SyncBlockSettings _Settings;
+
+        internal SyncBlockSettings Settings
+        {
+            get
+            {
+                return (_Settings != null) ? _Settings : _Settings = SyncBlockSettings.Load(this, Mod.ModGuid, BlockWeldPriority, BlockGrindPriority, ComponentCollectPriority);
+            }
+        }
+
+        internal void ResetSettings()
+        {
+            _Settings = new SyncBlockSettings(this);
+            BlockWeldPriority.ResetToDefaultOrder();
+            BlockWeldPriority.SetAllEnabled(true);
+            _Settings.WeldPriority = BlockWeldPriority.GetEntries();
+            BlockGrindPriority.ResetToDefaultOrder();
+            BlockGrindPriority.SetAllEnabled(true);
+            _Settings.GrindPriority = BlockGrindPriority.GetEntries();
+            ComponentCollectPriority.ResetToDefaultOrder();
+            ComponentCollectPriority.SetAllEnabled(true);
+            _Settings.ComponentCollectPriority = ComponentCollectPriority.GetEntries();
+            UpdateCustomInfo(true);
+        }
+
+        private BlockPriorityHandling _BlockWeldPriority = new BlockPriorityHandling();
+
+        internal BlockPriorityHandling BlockWeldPriority
+        {
+            get
+            {
+                return _BlockWeldPriority;
+            }
+        }
+
+        private BlockPriorityHandling _BlockGrindPriority = new BlockPriorityHandling();
+
+        internal BlockPriorityHandling BlockGrindPriority
+        {
+            get
+            {
+                return _BlockGrindPriority;
+            }
+        }
+
+        private ComponentPriorityHandling _ComponentCollectPriority = new ComponentPriorityHandling();
+
+        internal ComponentPriorityHandling ComponentCollectPriority
+        {
+            get
+            {
+                return _ComponentCollectPriority;
+            }
+        }
+
+        public IMyShipWelder Welder
+        { get { return _Welder; } }
+
+        private SyncBlockState _State = new SyncBlockState();
+
+        public SyncBlockState State
+        { get { return _State; } }
+
+        /// <summary>
+        /// Cluster assignment for shared scanning. Null means solo (legacy path).
+        /// Set by ScanClusterCoordinator.RebuildClusters() on main thread, read on background thread.
+        /// </summary>
+        internal volatile ScanCluster AssignedCluster;
+
+        /// <summary>
+        /// Counts consecutive cycles where a cluster member received no shared result.
+        /// After 3 misses, falls back to independent scan.
+        /// </summary>
+        internal int MissedResultCycles;
+
+        /// <summary>
+        /// FEAT-071: Counts consecutive cluster scans that produced zero targets.
+        /// After IdleScansBeforeBackoff consecutive empty scans, the coordinator
+        /// extends its scan interval to reduce background work.
+        /// </summary>
+        internal int _consecutiveEmptyScans;
+        internal const int IdleScansBeforeBackoff = 3;
+        internal static readonly TimeSpan IdleScanInterval = TimeSpan.FromSeconds(10);
+
+        /// <summary>
+        /// FEAT-075: Set by the coordinator when it skips a scan because the
+        /// target list is still saturated (plenty of live targets remain).
+        /// Members check this flag to also skip their apply-result cycle.
+        /// </summary>
+        internal volatile bool _scanSkippedSaturated;
+        /// <summary>
+        /// FEAT-075: When a member signals the coordinator to rescan (e.g., member ran
+        /// out of weld targets), this flag bypasses the saturated skip so the coordinator
+        /// actually performs the scan instead of checking its own (still-full) target lists.
+        /// </summary>
+        internal volatile bool _rescanForced;
+        /// <summary>
+        /// FEAT-075: Timestamp of the last full scan that actually ran.
+        /// Used to enforce a maximum skip duration (force rescan every 60s).
+        /// </summary>
+        internal TimeSpan _lastFullScanTime;
+        internal const int SaturatedRescanThreshold = 64;
+        internal static readonly TimeSpan MaxScanSkipDuration = TimeSpan.FromSeconds(60);
+        /// <summary>FEAT-075: per-type scan counts to distinguish "depleted" from "never existed".</summary>
+        internal int _lastScanWeldCandidateCount;
+        internal int _lastScanGrindCandidateCount;
+
+        /// <summary>
+        /// Stagger slot (0..StaggerGroupCount-1) assigned at init. Only BaRs whose slot
+        /// matches the current cycle run ServerTryWeldingGrindingCollecting(), spreading
+        /// the per-tick main-thread load across multiple ticks.
+        /// </summary>
+        internal int _staggerSlot = -1;
+
+        /// <summary>
+        /// FEAT-072: Cached numeric hash of cluster-relevant fields.
+        /// Compared in the RebuildClusters fast path instead of recomputing
+        /// the full cluster key string every second.
+        /// </summary>
+        internal int _lastClusterKeyHash;
+
+        // Shared release helper for the weld/grind loops; second overload preserves
+        // tsAssignOps profiler timing at call sites that aggregate it.
+        // BUG-260612.17: owner-checked — a stale lock-on (TTL expired, block claimed
+        // by another BaR) must not delete the other BaR's claim.
+        private void ReleaseAssignmentIfEnabled(IMySlimBlock block)
+        {
+            if (Mod.Settings.AssignToSystemEnabled) block.ReleaseFromSystem(_Welder.EntityId);
+        }
+
+        private void ReleaseAssignmentIfEnabled(IMySlimBlock block, bool profilerEnabled, ref long tsAssignOps)
+        {
+            if (!Mod.Settings.AssignToSystemEnabled) return;
+            var ts = profilerEnabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0L;
+            block.ReleaseFromSystem(_Welder.EntityId);
+            if (ts != 0L) tsAssignOps += System.Diagnostics.Stopwatch.GetTimestamp() - ts;
+        }
+    }
+}
