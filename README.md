@@ -38,9 +38,19 @@ as the original mod and its reuploads.
 
 ### Dedicated servers
 
-Dedicated servers load mods from the Workshop. From the in-game Mods screen, select
-**BuildAndRepair** and click **Publish** (you can publish it as unlisted/friends-only),
-then add the new Workshop ID to the server.
+Servers and the players joining them get mods from the Workshop, so publish it first:
+
+1. Install it locally as above, then in the game's **Mods** screen select
+   **BuildAndRepair** and click **Publish**.
+2. Set the Workshop item's visibility to **Unlisted** or **Public**. Not Friends-only
+   or Private: players who can't download it can't join.
+3. In the server's mod list, remove the old Build and Repair mod and add the new
+   Workshop ID, then restart the server.
+
+Each block's terminal settings carry over (same storage key as the original mod).
+Server-wide `ModSettings.xml` tweaks do not: that file lives in a world storage folder
+named after the mod's Workshop ID, so the new ID starts from defaults. Copy your old
+values over or set them with `/nanobars config` if you had changed any.
 
 ## Block cost
 
