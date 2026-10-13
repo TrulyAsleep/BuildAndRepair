@@ -52,6 +52,15 @@ Server-wide `ModSettings.xml` tweaks do not: that file lives in a world storage 
 named after the mod's Workshop ID, so the new ID starts from defaults. Copy your old
 values over or set them with `/nanobars config` if you had changed any.
 
+## Workshop images
+
+- `BuildAndRepair/thumb.jpg` is the Workshop preview image. The game uploads it
+  automatically when you publish.
+- `Workshop/*.jpg` are gallery images for the Workshop page. After publishing, add
+  them on the item's page under **Add/edit images & videos**.
+- `Workshop/source/` holds the editable source (`images.html`); re-render with
+  `node render.cjs` (needs Playwright). Rajdhani font: SIL Open Font License.
+
 ## Block cost
 
 By default the blocks use the original Nanobot build costs. To use the more expensive
