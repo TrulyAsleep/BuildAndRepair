@@ -1,0 +1,81 @@
+[h1]Build and Repair — ORIGINAL COSTS version (SE 1.210)[/h1]
+
+[b]This is the ORIGINAL COSTS version: the classic, cheap Nanobot recipe.[/b]
+Want it to be a real investment? Use [url=REPLACE_WITH_NERFED_LINK]Build and Repair (Nerfed)[/url] instead.
+[b]Never use both versions in the same world.[/b]
+
+[h2]What it does[/h2]
+A block full of nanobots that works on everything inside its area, automatically:
+[list]
+[*][b]Weld[/b] — builds projections and finishes half-built blocks
+[*][b]Repair[/b] — fixes damaged blocks
+[*][b]Grind[/b] — takes apart enemy, neutral or color-marked blocks
+[*][b]Collect[/b] — picks up floating items and sends them to your cargo
+[/list]
+It pulls components from your cargo containers, connectors, sorters and assemblers, and pushes leftovers to cargo and refineries.
+
+Set it up per block in the terminal:
+[list]
+[*]Work mode: weld first, grind first, weld only or grind only
+[*]Weld mode: weld to full, to functional only, or place projected blocks as skeletons
+[*]Priority lists for welding, grinding and collecting
+[*]Color filters and an adjustable working area, with a Show Area preview
+[/list]
+Respects safe zones and the Defense Shields mod. Comes in large and small grid versions.
+
+[h2]What's in this version[/h2]
+[list]
+[*][b]Original Nanobot costs[/b] (see below)
+[*]Built on the newest maintained Build and Repair code, with dozens of bug and performance fixes
+[*]Picks up floating items reliably on the current game version
+[*]Block name shows the version in the G-menu: [i]Build and Repair System (Original)[/i]
+[/list]
+Type [b]/nanobars version[/b] in chat to see which build is running. Current build: [b]261019.1[/b].
+
+[h2]Build cost (ORIGINAL)[/h2]
+[table]
+[tr][th]Component[/th][th]Large grid[/th][th]Small grid[/th][/tr]
+[tr][td]Steel Plate[/td][td]52[/td][td]19[/td][/tr]
+[tr][td]Construction Component[/td][td]140[/td][td]50[/td][/tr]
+[tr][td]Interior Plate[/td][td]25[/td][td]8[/td][/tr]
+[tr][td]Small Steel Tube[/td][td]60[/td][td]20[/td][/tr]
+[tr][td]Large Steel Tube[/td][td]10[/td][td]2[/td][/tr]
+[tr][td]Computer[/td][td]20[/td][td]10[/td][/tr]
+[tr][td]Motor[/td][td]40[/td][td]12[/td][/tr]
+[/table]
+No Superconductors needed.
+
+Power: 50 kW idle, 100 kW while moving items, 200 kW while welding or grinding (server admins can change these).
+
+[h2]Switching from another Build and Repair mod[/h2]
+[list]
+[*]Remove the old Build and Repair mod from the world, then add this one.
+[*]Your existing Build and Repair blocks stay: the block IDs are the same as the original Nanobot mod.
+[*]Each block's terminal settings carry over.
+[*]Server-wide settings start from defaults. Copy your old ModSettings.xml values over, or set them with [b]/nanobars config set[/b].
+[*]Heads-up for admins: blocks built before the switch stay complete, but grinding one down refunds this version's cost.
+[/list]
+
+[h2]Companion script[/h2]
+Works with SKO85's [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3472701905]Queuing / Display / Scripting[/url] Programmable Block script, which keeps your assemblers queued with the components your Build and Repair blocks are missing.
+
+[h2]Server admins[/h2]
+Settings live in [b]ModSettings.xml[/b] in the world's storage folder. Admins can change most of them live in chat:
+[list]
+[*][b]/nanobars config list[/b] — show all settings
+[*][b]/nanobars config set <name> <value>[/b] — change one
+[*][b]/nanobars config reload[/b] / [b]reset[/b] — reload from file / back to defaults
+[*][b]/nanobars systems list[/b] / [b]count[/b] — Build and Repair blocks on the server, per player and faction
+[*][b]/nanobars profile[/b] — measure the mod's performance impact
+[/list]
+Settings and commands match SKO85's maintained version, so their [url=https://sko85.github.io/SE-Mods/Build-and-Repair-System/]documentation[/url] applies.
+
+[h2]Reporting bugs[/h2]
+Leave a comment with what happened, the output of [b]/nanobars version[/b], and whether it's single player or a dedicated server.
+This is an unofficial update, so please report problems here, not to SKO85.
+
+[h2]Credits[/h2]
+[list]
+[*]Original mod: [b]Dummy08[/b]
+[*]Maintained code: [b]SKO85[/b] — [url=https://github.com/SKO85/SE-Mods]github.com/SKO85/SE-Mods[/url]
+[/list]

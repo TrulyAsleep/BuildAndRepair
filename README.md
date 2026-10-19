@@ -74,9 +74,13 @@ Then on each item's Workshop page:
    - Nerfed: `Workshop/1-updated.jpg`, `Workshop/2-features.jpg`, `Workshop/3-dropin.jpg`
    - Original Costs: `Workshop/OriginalCosts/1-updated.jpg`, plus the same
      `2-features.jpg` and `3-dropin.jpg`
-3. Start each description with which version it is and a link to the other, e.g.
-   *"This is the NERFED version (expensive to build). Prefer the original cheap
-   recipe? Use Build and Repair (Original Costs) instead: [link]. Never use both."*
+3. Paste the description (Steam BBCode, ready to use):
+   - Nerfed: `Workshop/Description-Nerfed.txt`
+   - Original Costs: `Workshop/OriginalCosts/Description-OriginalCosts.txt`
+
+   Each links to the other version; once both are published, replace
+   `REPLACE_WITH_ORIGINAL_COSTS_LINK` / `REPLACE_WITH_NERFED_LINK` with the other
+   item's Workshop URL. Update the "Current build" number when you publish a new build.
 
 ## Switching a world between versions
 
