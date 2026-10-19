@@ -36,6 +36,7 @@ body { font-family: Inter, sans-serif; color: var(--ink); }
   background: repeating-linear-gradient(-45deg, var(--yellow) 0 22px, #111 22px 44px);
 }
 .hazard.top { top: 0; }
+.hazard.green { background: repeating-linear-gradient(-45deg, var(--green) 0 22px, #111 22px 44px); }
 .hazard.bottom { bottom: 0; }
 
 .kicker {
@@ -47,27 +48,30 @@ body { font-family: Inter, sans-serif; color: var(--ink); }
   line-height: 0.9; letter-spacing: 0.01em; color: #fff;
   text-shadow: 0 0 28px rgba(95, 215, 255, 0.35), 0 4px 0 rgba(0, 0, 0, 0.45);
 }
-.badge {
-  display: inline-flex; align-items: center; gap: 18px;
-  font-family: Rajdhani; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
-  color: #111; background: var(--yellow);
-  box-shadow: 0 6px 24px rgba(245, 196, 0, 0.25);
-}
-.badge::before, .badge::after {
-  content: ""; align-self: stretch; width: 34px;
-  background: repeating-linear-gradient(-45deg, #111 0 7px, transparent 7px 14px);
-}
-
 /* ---------- thumbnail ---------- */
 .thumb { width: 1024px; height: 1024px; }
 .thumb .fade {
   position: absolute; left: 0; right: 0; bottom: 0; height: 430px;
   background: linear-gradient(180deg, transparent, rgba(4, 9, 18, 0.88) 45%, var(--bg0));
 }
-.thumb .text { position: absolute; left: 0; right: 0; bottom: 70px; text-align: center; }
+.thumb .text { position: absolute; left: 0; right: 0; bottom: 196px; text-align: center; }
 .thumb .kicker { font-size: 40px; margin-bottom: 6px; }
 .thumb .title { font-size: 150px; }
-.thumb .badge { font-size: 46px; padding: 0 0; margin-top: 34px; height: 70px; }
+/* The version band: the one thing that must read at Workshop browse size. */
+.thumb .band {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 160px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: Rajdhani; font-weight: 700; font-size: 128px; letter-spacing: 0.14em; text-indent: 0.14em;
+  text-transform: uppercase; color: #111; background: var(--yellow);
+  box-shadow: 0 -10px 40px rgba(245, 196, 0, 0.25);
+}
+.thumb .band.green { background: var(--green); box-shadow: 0 -10px 40px rgba(79, 220, 143, 0.25); }
+.thumb .band::before, .thumb .band::after {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 84px;
+  background: repeating-linear-gradient(-45deg, #111 0 12px, transparent 12px 24px);
+}
+.thumb .band::before { left: 0; }
+.thumb .band::after { right: 0; }
 
 /* ---------- gallery ---------- */
 .wide { width: 1920px; height: 1080px; }
@@ -384,28 +388,37 @@ const ICON = {
 /* ---------- pages ---------- */
 const KICKER = 'Build &amp; Repair &middot; Nanobot System';
 
+// Which Workshop version to draw: ?variant=nerfed (default) or ?variant=original.
+const VERSION = new URLSearchParams(location.search).get('variant') === 'original'
+  ? { band: 'Original', accent: 'green', kicker: 'Build &amp; Repair &middot; Original costs',
+      card: 'good', tag: 'Original cost', icon: ICON.plates('#4fdc8f'),
+      text: 'The classic Nanobot recipe: cheap to build, no Superconductors.' }
+  : { band: 'Nerfed', accent: '', kicker: 'Build &amp; Repair &middot; Nerfed version',
+      card: 'cost', tag: 'Nerfed cost', icon: ICON.plates('#f5c400'),
+      text: 'About 10x the original parts, plus Superconductors. A real investment.' };
+
 function thumbPage() {
-  const I = iso(140, 215, 390);
+  const I = iso(140, 215, 345);
   return `<div class="canvas thumb">
     <svg class="layer" width="1024" height="1024" viewBox="0 0 1024 1024">${stars(1024, 1024, 170, 3)}${scene(I, 't')}</svg>
     <div class="fade"></div>
-    <div class="hazard top"></div>
+    <div class="hazard top ${VERSION.accent}"></div>
     <div class="text">
-      <div class="kicker">Nanobot System</div>
+      <div class="kicker">Nanobot System &middot; SE 1.210</div>
       <div class="title">Build &amp; Repair</div>
-      <div class="badge">Updated for SE 1.210</div>
     </div>
+    <div class="band ${VERSION.accent}">${VERSION.band}</div>
   </div>`;
 }
 
-function wide(content) {
+function wide(content, kicker = KICKER, accent = '') {
   const I = iso(100, 175, 350);
   return `<div class="canvas wide">
     <svg class="layer" width="1920" height="1080" viewBox="0 0 1920 1080">${stars(1920, 1080, 260, 11)}</svg>
     <svg class="art" width="760" height="760" viewBox="0 0 760 760">${scene(I, 'w')}</svg>
-    <div class="hazard top"></div>
-    <div class="content"><div class="kicker">${KICKER}</div>${content}</div>
-    <div class="hazard bottom"></div>
+    <div class="hazard top ${accent}"></div>
+    <div class="content"><div class="kicker">${kicker}</div>${content}</div>
+    <div class="hazard bottom ${accent}"></div>
   </div>`;
 }
 
@@ -414,14 +427,14 @@ function updatedPage() {
     <div class="compare">
       <div class="card info"><div class="head">${ICON.chip('#5fd7ff')}<div class="tag">Latest code</div></div>
         <p>Built on the newest maintained code, with dozens of bug fixes.</p></div>
-      <div class="card cost"><div class="head">${ICON.plates('#f5c400')}<div class="tag">Nerfed cost</div></div>
-        <p>About 10x the original parts, plus Superconductors. A real investment.</p></div>
+      <div class="card ${VERSION.card}"><div class="head">${VERSION.icon}<div class="tag">${VERSION.tag}</div></div>
+        <p>${VERSION.text}</p></div>
     </div>
     <ul class="points">
       <li>${ICON.hex('#5fd7ff')}<span>Every component hand-off is checked, so <b>nothing gets lost</b></span></li>
       <li>${ICON.hex('#5fd7ff')}<span>Works with the Build and Repair companion script</span></li>
       <li>${ICON.hex('#5fd7ff')}<span>Check the running build with <b>/nanobars version</b></span></li>
-    </ul>`);
+    </ul>`, VERSION.kicker, VERSION.accent);
 }
 
 function featuresPage() {

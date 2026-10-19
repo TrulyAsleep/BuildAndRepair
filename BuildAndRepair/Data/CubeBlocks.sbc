@@ -7,7 +7,7 @@
             <TypeId>ShipWelder</TypeId>
             <SubtypeId>SELtdLargeNanobotBuildAndRepairSystem</SubtypeId>
          </Id>
-         <DisplayName>BuildAndRepairSystem</DisplayName>
+         <DisplayName>Build and Repair System (Nerfed)</DisplayName>
          <Icon>Textures\Icons\SELtdNanobotBuildAndRepairSystem.dds</Icon>
 		 <Description>A Build and Repair System that will help construct and repair your grids!</Description>
          <CubeSize>Large</CubeSize>
@@ -63,7 +63,7 @@
             <TypeId>ShipWelder</TypeId>
             <SubtypeId>SELtdSmallNanobotBuildAndRepairSystem</SubtypeId>
          </Id>
-         <DisplayName>BuildAndRepairSystem</DisplayName>
+         <DisplayName>Build and Repair System (Nerfed)</DisplayName>
          <Icon>Textures\Icons\SELtdNanobotBuildAndRepairSystem.dds</Icon>
 		 <Description>A Build and Repair System that will help construct and repair your grids!</Description>
          <CubeSize>Small</CubeSize>

@@ -7,7 +7,9 @@ const { chromium } = require('playwright');
 
 const pages = [
   { name: 'thumb', w: 1024, h: 1024 },
+  { name: 'thumb-original', page: 'thumb', variant: 'original', w: 1024, h: 1024 },
   { name: 'updated', w: 1920, h: 1080 },
+  { name: 'updated-original', page: 'updated', variant: 'original', w: 1920, h: 1080 },
   { name: 'features', w: 1920, h: 1080 },
   { name: 'dropin', w: 1920, h: 1080 },
 ];
@@ -17,7 +19,7 @@ const pages = [
   const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
   for (const p of pages) {
     const page = await browser.newPage({ viewport: { width: p.w, height: p.h } });
-    await page.goto('file://' + path.join(__dirname, 'images.html') + '?page=' + p.name);
+    await page.goto('file://' + path.join(__dirname, 'images.html') + '?page=' + (p.page || p.name) + (p.variant ? '&variant=' + p.variant : ''));
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: path.join(outDir, p.name + '.png') });
     console.log('rendered', p.name);

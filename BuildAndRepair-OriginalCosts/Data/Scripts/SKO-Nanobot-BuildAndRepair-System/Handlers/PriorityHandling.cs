@@ -1,0 +1,338 @@
+using System.Collections.Generic;
+using System.Linq;
+using VRage.ModAPI;
+using VRage.Scripting.MemorySafeTypes;
+using VRage.Utils;
+
+namespace SKONanobotBuildAndRepairSystem.Handlers
+{
+    public class PrioItem
+    {
+        public int Key;
+        public string Alias;
+
+        public PrioItem(int key, string alias)
+        {
+            Key = key;
+            Alias = alias;
+        }
+
+        public override string ToString()
+        {
+            return Alias;
+        }
+    }
+
+    public class PrioItemState<T> where T : PrioItem
+    {
+        public T PrioItem { get; }
+        public bool Enabled { get; set; }
+        public bool Visible { get; set; }
+
+        public PrioItemState(T prioItem, bool enabled, bool visible)
+        {
+            PrioItem = prioItem;
+            Enabled = enabled;
+            Visible = visible;
+        }
+    }
+
+    public abstract class PriorityHandling<C, I> : List<PrioItemState<C>> where C : PrioItem //where C : struct
+    {
+        // BUG-097: cross-thread dirty flag (main writes, scan/weld/grind read).
+        protected volatile bool _HashDirty = true;
+
+        // BUG-097: lock-free reads via fresh-dict-then-atomic-swap (Clear+Add raced).
+        private readonly object _hashLock = new object();
+        private MemorySafeList<string> _ClassList = new MemorySafeList<string>();
+        private Dictionary<int, int> _PrioHash = new Dictionary<int, int>();
+
+        public C Selected { get; private set; } //Visual
+
+        /// <summary>
+        /// Set current active item
+        /// </summary>
+        public void SetSelectedByKey(int key)
+        {
+            var item = this.Find(i => i.PrioItem.Key == key);
+            if (item != null) Selected = item.PrioItem;
+            else Selected = null;
+        }
+
+        /// <summary>
+        /// Clear current active item
+        /// </summary>
+        public void ClearSelected()
+        {
+            Selected = null;
+        }
+
+        /// <summary>
+        /// Retrieve the build/repair priority of the item.
+        /// </summary>
+        internal int GetPriority(I a)
+        {
+            var itemKey = GetItemKey(a, false);
+            if (_HashDirty) UpdateHash();
+            // BUG-097: snapshot the dict ref to race-free TryGetValue.
+            var hash = _PrioHash;
+            int prio;
+            if (hash.TryGetValue(itemKey, out prio))
+                return prio;
+            return int.MaxValue;
+        }
+
+        /// <summary>
+        /// Retrieve if the build/repair of this item kind is enabled.
+        /// </summary>
+        internal bool GetEnabled(I a)
+        {
+            var itemKey = GetItemKey(a, true);
+            if (_HashDirty) UpdateHash();
+            var hash = _PrioHash;
+            int prio;
+            if (hash.TryGetValue(itemKey, out prio))
+                return prio < int.MaxValue;
+            return false;
+        }
+
+        /// <summary>
+        /// Get the item key value
+        /// </summary>
+        /// <param name="a"></param>
+        /// <returns></returns>
+        public abstract int GetItemKey(I a, bool real);
+
+        /// <summary>
+        /// Get the item alias
+        /// </summary>
+        /// <param name="a"></param>
+        /// <returns></returns>
+        public abstract string GetItemAlias(I a, bool real);
+
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="items"></param>
+        internal void FillTerminalList(List<MyTerminalControlListBoxItem> items, List<MyTerminalControlListBoxItem> selected)
+        {
+            foreach (var entry in this)
+            {
+                if (entry.Visible)
+                {
+                    var item = new MyTerminalControlListBoxItem(MyStringId.GetOrCompute(string.Format("({0}) {1}", entry.Enabled ? "X" : "-", entry.PrioItem.ToString())), MyStringId.NullOrEmpty, entry.PrioItem);
+                    items.Add(item);
+
+                    if (entry.PrioItem.Equals(Selected))
+                    {
+                        selected.Add(item);
+                    }
+                }
+            }
+        }
+
+        // BUG-260610.16: every mutator below takes _hashLock — UpdateHash enumerates
+        // this list under that lock from background scan threads, and an unguarded
+        // main-thread Move/Sort/toggle mid-enumeration throws (swallowed by the
+        // worker → silently lost scan) or produces a torn priority hash. Mutations
+        // are rare (terminal UI / settings receive), so the lock cost is irrelevant.
+        internal void MoveSelectedUp()
+        {
+            if (Selected != null)
+            {
+                lock (_hashLock)
+                {
+                    var currentPrio = FindIndex((kv) => kv.PrioItem.Equals(Selected));
+                    if (currentPrio > 0)
+                    {
+                        this.Move(currentPrio, currentPrio - 1);
+                        _HashDirty = true;
+                    }
+                }
+            }
+        }
+
+        internal void MoveSelectedDown()
+        {
+            if (Selected != null)
+            {
+                lock (_hashLock)
+                {
+                    var currentPrio = FindIndex((kv) => kv.PrioItem.Equals(Selected));
+                    if (currentPrio >= 0 && currentPrio < Count - 1)
+                    {
+                        this.Move(currentPrio, currentPrio + 1);
+                        _HashDirty = true;
+                    }
+                }
+            }
+        }
+
+        internal void ToggleEnabled()
+        {
+            if (Selected != null)
+            {
+                lock (_hashLock)
+                {
+                    var keyValue = this.FirstOrDefault((kv) => kv.PrioItem.Equals(Selected));
+                    if (keyValue != null)
+                    {
+                        keyValue.Enabled = !keyValue.Enabled;
+                        _HashDirty = true;
+                    }
+                }
+            }
+        }
+
+        internal int GetPriority(int itemKey)
+        {
+            return FindIndex((kv) => kv.PrioItem.Key == itemKey);
+        }
+
+        internal void SetPriority(int itemKey, int prio)
+        {
+            lock (_hashLock)
+            {
+                if (prio >= 0 && prio < Count)
+                {
+                    var currentPrio = FindIndex((kv) => kv.PrioItem.Key == itemKey);
+                    if (currentPrio >= 0)
+                    {
+                        this.Move(currentPrio, prio);
+                        _HashDirty = true;
+                    }
+                }
+            }
+        }
+
+        internal bool GetEnabled(int itemKey)
+        {
+            var keyValue = this.FirstOrDefault((kv) => kv.PrioItem.Key == itemKey);
+            return keyValue != null ? keyValue.Enabled : false;
+        }
+
+        internal void SetEnabled(int itemKey, bool enabled)
+        {
+            lock (_hashLock)
+            {
+                var keyValue = this.FirstOrDefault((kv) => kv.PrioItem.Key == itemKey);
+                if (keyValue != null)
+                {
+                    if (keyValue.Enabled != enabled)
+                    {
+                        keyValue.Enabled = enabled;
+                        _HashDirty = true;
+                    }
+                }
+            }
+        }
+
+        internal void SetAllEnabled(bool enabled)
+        {
+            lock (_hashLock)
+            {
+                foreach (var entry in this)
+                {
+                    entry.Enabled = enabled;
+                }
+                _HashDirty = true;
+            }
+        }
+
+        internal void ResetToDefaultOrder()
+        {
+            lock (_hashLock)
+            {
+                Sort((a, b) => a.PrioItem.Key.CompareTo(b.PrioItem.Key));
+                _HashDirty = true;
+            }
+        }
+
+        public bool AnyEnabled
+        {
+            get
+            {
+                return this.Any(i => i.Enabled);
+            }
+        }
+
+        internal string GetEntries()
+        {
+            if (Count == 0) return string.Empty;
+            var sb = new System.Text.StringBuilder(Count * 8);
+            for (var i = 0; i < Count; i++)
+            {
+                if (i > 0) sb.Append('|');
+                var entry = this[i];
+                sb.Append(entry.PrioItem.Key);
+                sb.Append(';');
+                sb.Append(entry.Enabled);
+            }
+            return sb.ToString();
+        }
+
+        internal void SetEntries(string value)
+        {
+            if (value == null) return;
+            var entries = value.Split('|');
+            lock (_hashLock)
+            {
+                var prio = 0;
+                foreach (var val in entries)
+                {
+                    var prioItemKey = 0;
+                    var enabled = true;
+                    var values = val.Split(';');
+                    if (values.Length >= 2 &&
+                       int.TryParse(values[0], out prioItemKey) &&
+                       bool.TryParse(values[1], out enabled))
+                    {
+                        var keyValue = this.FirstOrDefault((kv) => kv.PrioItem.Key == prioItemKey);
+                        if (keyValue != null)
+                        {
+                            keyValue.Enabled = enabled;
+                            var currentPrio = IndexOf(keyValue);
+                            this.Move(currentPrio, prio);
+                            prio++;
+                        }
+                    }
+                }
+                _HashDirty = true;
+            }
+        }
+
+        internal MemorySafeList<string> GetList()
+        {
+            if (_HashDirty) UpdateHash();
+            return _ClassList;
+        }
+
+        public void UpdateHash()
+        {
+            lock (_hashLock)
+            {
+                if (!_HashDirty) return;
+
+                // BUG-097: build fresh, swap reference (in-place mutation races readers).
+                var newClassList = new MemorySafeList<string>();
+                foreach (var item in this)
+                {
+                    // PERF-6: avoid string.Format boxing for the int + bool args.
+                    newClassList.Add(item.PrioItem.Key.ToString() + ";" + (item.Enabled ? "True" : "False"));
+                }
+
+                var newPrioHash = new Dictionary<int, int>(this.Count);
+                var prio = 1;
+                foreach (var item in this)
+                {
+                    newPrioHash[item.PrioItem.Key] = item.Enabled ? prio : int.MaxValue;
+                    prio++;
+                }
+
+                _ClassList = newClassList;
+                _PrioHash = newPrioHash;
+                _HashDirty = false;
+            }
+        }
+    }
+}

@@ -3,6 +3,22 @@
 The Nanobot Build and Repair System, built from the newest maintained code and
 running on the current Space Engineers version (1.210 "Prosperity").
 
+## Two versions
+
+Both versions are the same mod. Only the block cost differs, and each one is
+labelled everywhere a player looks:
+
+| | Nerfed | Original Costs |
+| --- | --- | --- |
+| Folder | `BuildAndRepair/` | `BuildAndRepair-OriginalCosts/` |
+| Block cost | About 10x the original parts, plus Superconductors | The original Nanobot recipe |
+| Workshop thumbnail | Yellow **NERFED** band | Green **ORIGINAL** band |
+| Block name in the G-menu | Build and Repair System (Nerfed) | Build and Repair System (Original) |
+| Suggested Workshop title | Build and Repair (Nerfed) – SE 1.210 | Build and Repair (Original Costs) – SE 1.210 |
+
+Use **one version per world, never both**: they define the same blocks and run the
+same scripts, so together they conflict.
+
 ## What's in this build
 
 - **Newest maintained code.** Based on SKO85's unreleased v2.5.6 development code
@@ -18,66 +34,79 @@ running on the current Space Engineers version (1.210 "Prosperity").
 
   Both now check free space directly and confirm the items arrived, so nothing is
   lost. SKO85's released v2.5.5 never used that check, so it isn't affected.
-- **Nerfed build costs by default** (see [Block cost](#block-cost)).
 
 `/nanobars version` shows the build number, so you can confirm which build a server
 is running.
 
 ## Install (single player / hosting from your game)
 
-1. Copy the `BuildAndRepair` folder into `%AppData%\SpaceEngineers\Mods\`
-   so you end up with `%AppData%\SpaceEngineers\Mods\BuildAndRepair\Data\...`.
+1. Copy **one** of the two folders into `%AppData%\SpaceEngineers\Mods\`, e.g.
+   `%AppData%\SpaceEngineers\Mods\BuildAndRepair\Data\...`.
 2. In Space Engineers: **Load Game** → select your world → **Edit Settings** → **Mods**.
-3. **Remove the old, outdated Build and Repair mod** from the world. Do not run both;
-   two copies of the same block script conflict.
-4. Add **BuildAndRepair** (it shows with a local/folder icon) and save.
+3. **Remove any other Build and Repair mod** from the world.
+4. Add the one you copied (it shows with a local/folder icon) and save.
 
-Your existing Build and Repair blocks stay in the world: this version uses the same
-block IDs (`SELtdLargeNanobotBuildAndRepairSystem` / `SELtdSmallNanobotBuildAndRepairSystem`)
+Existing Build and Repair blocks stay in the world: both versions use the same block
+IDs (`SELtdLargeNanobotBuildAndRepairSystem` / `SELtdSmallNanobotBuildAndRepairSystem`)
 as the original mod and its reuploads.
 
-### Dedicated servers
+## Publishing to the Workshop
 
-Servers and the players joining them get mods from the Workshop, so publish it first:
+Servers and the players joining them get mods from the Workshop. Each version is its
+own Workshop item, and the file that ties a folder to its item is `modinfo.sbmi`,
+which the game writes into the folder the first time you publish it.
 
-1. Install it locally as above, then in the game's **Mods** screen select
-   **BuildAndRepair** and click **Publish**.
-2. Set the Workshop item's visibility to **Unlisted** or **Public**. Not Friends-only
-   or Private: players who can't download it can't join.
-3. In the server's mod list, remove the old Build and Repair mod and add the new
-   Workshop ID, then restart the server.
+- **Updating the Nerfed item you already published:** copy the contents of
+  `BuildAndRepair/` over your existing `%AppData%\SpaceEngineers\Mods\BuildAndRepair\`
+  folder, keeping the `modinfo.sbmi` that is already there, then **Publish**. That
+  updates your existing item.
+- **Publishing Original Costs for the first time:** copy `BuildAndRepair-OriginalCosts/`
+  into the Mods folder and **Publish**. With no `modinfo.sbmi` it becomes a new item.
+  Never copy the Nerfed folder's `modinfo.sbmi` into it: publishing would then
+  overwrite your Nerfed item.
 
-Each block's terminal settings carry over (same storage key as the original mod).
-Server-wide `ModSettings.xml` tweaks do not: that file lives in a world storage folder
-named after the mod's Workshop ID, so the new ID starts from defaults. Copy your old
-values over or set them with `/nanobars config` if you had changed any.
+Then on each item's Workshop page:
 
-## Workshop images
+1. Set visibility to **Unlisted** or **Public**. Not Friends-only or Private: players
+   who can't download it can't join.
+2. Under **Add/edit images & videos**, add the gallery images. The thumbnail is
+   uploaded automatically from the folder's `thumb.jpg`.
+   - Nerfed: `Workshop/1-updated.jpg`, `Workshop/2-features.jpg`, `Workshop/3-dropin.jpg`
+   - Original Costs: `Workshop/OriginalCosts/1-updated.jpg`, plus the same
+     `2-features.jpg` and `3-dropin.jpg`
+3. Start each description with which version it is and a link to the other, e.g.
+   *"This is the NERFED version (expensive to build). Prefer the original cheap
+   recipe? Use Build and Repair (Original Costs) instead: [link]. Never use both."*
 
-- `BuildAndRepair/thumb.jpg` is the Workshop preview image. The game uploads it
-  automatically when you publish.
-- `Workshop/*.jpg` are gallery images for the Workshop page. After publishing, add
-  them on the item's page under **Add/edit images & videos**.
-- `Workshop/source/` holds the editable source (`images.html`); re-render with
-  `node render.cjs` (needs Playwright). Rajdhani font: SIL Open Font License.
+## Switching a world between versions
 
-## Block cost
+Remove one from the world's mod list (or the server's), add the other, and restart.
 
-By default the blocks use the "nerfed" costs from SKO85's maintained version: about
-10x the original components, plus Superconductors. For the original, cheaper Nanobot
-costs, copy `Variants/OriginalResources/Data/CubeBlocks.sbc` over
-`BuildAndRepair/Data/CubeBlocks.sbc`.
+- Blocks stay, and each block's terminal settings carry over.
+- Built blocks stay complete: the game saves how far each block is built as a
+  percentage. But grinding one down refunds the new cost, so going from Original to
+  Nerfed hands out extra components for blocks built before the switch.
+- Server-wide `ModSettings.xml` tweaks don't carry over: that file lives in a world
+  storage folder named after the mod's Workshop ID, so the other version starts from
+  defaults. Copy your values over or set them with `/nanobars config`.
 
-Changing costs doesn't break blocks that are already built: the game saves how far
-each block is built as a percentage, so they stay complete. But grinding one down
-refunds the new cost, so switching from cheap to nerfed hands out extra components
-for any block built before the switch.
+The same applies when moving a world over from an older Build and Repair mod.
 
 ## Settings and commands
 
 Server settings live in `ModSettings.xml` (created in the world's storage folder);
 admins can use `/nanobars` chat commands. Full reference:
 <https://sko85.github.io/SE-Mods/Build-and-Repair-System/>
+
+## For maintainers
+
+- Make changes in `BuildAndRepair/`, then run `python3 tools/sync_original_costs.py`
+  to copy them into `BuildAndRepair-OriginalCosts/`. Only that folder's
+  `Data/CubeBlocks.sbc` and `thumb.jpg` are its own; the script never copies or
+  deletes `modinfo.sbmi`.
+- `Workshop/source/images.html` is the editable source for all Workshop images;
+  re-render with `node render.cjs <output-dir>` (needs Playwright). Rajdhani font:
+  SIL Open Font License.
 
 ## Credits
 
