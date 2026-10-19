@@ -7,7 +7,7 @@ const { chromium } = require('playwright');
 
 const pages = [
   { name: 'thumb', w: 1024, h: 1024 },
-  { name: 'fixed', w: 1920, h: 1080 },
+  { name: 'updated', w: 1920, h: 1080 },
   { name: 'features', w: 1920, h: 1080 },
   { name: 'dropin', w: 1920, h: 1080 },
 ];

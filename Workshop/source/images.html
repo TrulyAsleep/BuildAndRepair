@@ -88,6 +88,10 @@ body { font-family: Inter, sans-serif; color: var(--ink); }
 .card.bad .tag { color: var(--red); }
 .card.good { border-color: rgba(79, 220, 143, 0.6); box-shadow: 0 0 40px rgba(79, 220, 143, 0.12); }
 .card.good .tag { color: var(--green); }
+.card.info { border-color: rgba(95, 215, 255, 0.6); box-shadow: 0 0 40px rgba(95, 215, 255, 0.10); }
+.card.info .tag { color: var(--cyan); }
+.card.cost { border-color: rgba(245, 196, 0, 0.6); box-shadow: 0 0 40px rgba(245, 196, 0, 0.10); }
+.card.cost .tag { color: var(--yellow); }
 .arrow { align-self: center; color: var(--cyan); }
 
 .points { list-style: none; display: grid; gap: 24px; }
@@ -361,6 +365,8 @@ const ICON = {
   cross: c => `<svg width="56" height="56" viewBox="0 0 56 56"><circle cx="28" cy="28" r="25" fill="none" stroke="${c}" stroke-width="4"/><path d="M19 19 L37 37 M37 19 L19 37" stroke="${c}" stroke-width="5" stroke-linecap="round"/></svg>`,
   check: c => `<svg width="56" height="56" viewBox="0 0 56 56"><circle cx="28" cy="28" r="25" fill="none" stroke="${c}" stroke-width="4"/><path d="M17 29 L25 37 L40 20" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   hex: (c, s = 34) => `<svg width="${s}" height="${s}" viewBox="0 0 34 34"><path d="M17 2 L30 9.5 L30 24.5 L17 32 L4 24.5 L4 9.5 Z" fill="${c}" fill-opacity=".18" stroke="${c}" stroke-width="3"/><circle cx="17" cy="17" r="5" fill="${c}"/></svg>`,
+  chip: c => `<svg width="56" height="56" viewBox="0 0 56 56"><g stroke="${c}" stroke-width="3" stroke-linecap="round"><path d="M21 6 V12 M28 6 V12 M35 6 V12 M21 44 V50 M28 44 V50 M35 44 V50 M6 21 H12 M6 28 H12 M6 35 H12 M44 21 H50 M44 28 H50 M44 35 H50"/></g><rect x="12" y="12" width="32" height="32" rx="6" fill="${c}" fill-opacity=".16" stroke="${c}" stroke-width="3.5"/><rect x="21" y="21" width="14" height="14" rx="2" fill="${c}"/></svg>`,
+  plates: c => `<svg width="56" height="56" viewBox="0 0 56 56">${[30, 20, 10].map(y => `<path d="M6 ${y + 8} L28 ${y} L50 ${y + 8} L50 ${y + 14} L28 ${y + 22} L6 ${y + 14} Z" fill="#111" stroke="${c}" stroke-width="3" stroke-linejoin="round"/><path d="M6 ${y + 8} L28 ${y + 16} L50 ${y + 8}" fill="none" stroke="${c}" stroke-width="2.5" stroke-linejoin="round"/>`).join('')}</svg>`,
   checkSmall: c => `<svg width="40" height="40" viewBox="0 0 40 40"><rect x="2" y="2" width="36" height="36" rx="9" fill="${c}" fill-opacity=".16" stroke="${c}" stroke-width="3"/><path d="M11 21 L17.5 27.5 L29 14" fill="none" stroke="${c}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   weld: `<svg width="84" height="84" viewBox="0 0 84 84"><path d="M14 30 L42 16 L70 30 L70 60 L42 74 L14 60 Z" fill="#5fd7ff" fill-opacity=".1" stroke="#5fd7ff" stroke-width="3" stroke-dasharray="7 6"/><path d="M14 46 L42 60 L70 46 L70 60 L42 74 L14 60 Z" fill="#9fa9b8" stroke="#c9d1dc" stroke-width="2.5"/><path d="M14 46 L42 60 L70 46" fill="none" stroke="#ffb347" stroke-width="4" stroke-linecap="round"/><g stroke="#ffd27a" stroke-width="3" stroke-linecap="round"><path d="M42 60 L42 48"/><path d="M42 60 L33 52"/><path d="M42 60 L51 52"/></g></svg>`,
   repair: `<svg width="84" height="84" viewBox="0 0 84 84"><path d="M14 26 L42 12 L70 26 L70 58 L42 72 L14 58 Z" fill="#3473d4" stroke="#9cc9ff" stroke-width="3"/><path d="M14 26 L42 40 L70 26 M42 40 L42 72" fill="none" stroke="#9cc9ff" stroke-width="2.5" opacity=".7"/><rect x="50" y="44" width="28" height="28" rx="8" fill="#0a1b35" stroke="#4fdc8f" stroke-width="3"/><path d="M64 51 L64 65 M57 58 L71 58" stroke="#4fdc8f" stroke-width="4.5" stroke-linecap="round"/></svg>`,
@@ -403,18 +409,18 @@ function wide(content) {
   </div>`;
 }
 
-function fixedPage() {
-  return wide(`<div class="title">Welding fixed<br>for SE 1.210</div>
+function updatedPage() {
+  return wide(`<div class="title">Updated for<br>SE 1.210</div>
     <div class="compare">
-      <div class="card bad"><div class="head">${ICON.cross('#ff6464')}<div class="tag">Before</div></div>
-        <p>Blocks lock onto a target and pull parts from your cargo, then never weld anything.</p></div>
-      <div class="card good"><div class="head">${ICON.check('#4fdc8f')}<div class="tag">Now</div></div>
-        <p>Welding, repairing, grinding and collecting all work again on the current game version.</p></div>
+      <div class="card info"><div class="head">${ICON.chip('#5fd7ff')}<div class="tag">Latest code</div></div>
+        <p>Built on the newest maintained code, with dozens of bug fixes.</p></div>
+      <div class="card cost"><div class="head">${ICON.plates('#f5c400')}<div class="tag">Nerfed cost</div></div>
+        <p>About 10x the original parts, plus Superconductors. A real investment.</p></div>
     </div>
     <ul class="points">
-      <li>${ICON.hex('#5fd7ff')}<span>Fixed the internal inventory the game update broke</span></li>
       <li>${ICON.hex('#5fd7ff')}<span>Every component hand-off is checked, so <b>nothing gets lost</b></span></li>
-      <li>${ICON.hex('#5fd7ff')}<span>Latest maintained code with dozens of bug fixes</span></li>
+      <li>${ICON.hex('#5fd7ff')}<span>Works with the Build and Repair companion script</span></li>
+      <li>${ICON.hex('#5fd7ff')}<span>Check the running build with <b>/nanobars version</b></span></li>
     </ul>`);
 }
 
@@ -449,7 +455,7 @@ function dropinPage() {
 }
 
 const page = new URLSearchParams(location.search).get('page') || 'thumb';
-document.getElementById('root').innerHTML = { thumb: thumbPage, fixed: fixedPage, features: featuresPage, dropin: dropinPage }[page]();
+document.getElementById('root').innerHTML = { thumb: thumbPage, updated: updatedPage, features: featuresPage, dropin: dropinPage }[page]();
 </script>
 </body>
 </html>

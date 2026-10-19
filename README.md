@@ -1,27 +1,27 @@
 # Build and Repair — updated for Space Engineers 1.210
 
-The Nanobot Build and Repair System, updated to work on the current Space Engineers
-build (1.210 "Prosperity", after 1.209 "Economy 2").
+The Nanobot Build and Repair System, built from the newest maintained code and
+running on the current Space Engineers version (1.210 "Prosperity").
 
-## What was broken
+## What's in this build
 
-Since the latest game updates, Build and Repair blocks stop welding completely. They
-pick a target and pull components out of cargo, but nothing ever gets built (with
-auto-push on, the components just bounce back and forth between the block and your
-containers).
+- **Newest maintained code.** Based on SKO85's unreleased v2.5.6 development code
+  (upstream commit `9ab62fe`, October 2026), which has about 95 bug fixes beyond their
+  last Steam release (v2.5.5).
+- **Fixes for an engine quirk v2.5.6 ran into.** In the current game, the engine's
+  "will these items fit?" check always answers no for the mod's internal transport
+  inventory, even though adding items to it works. v2.5.6 started relying on that
+  check, which stalled two things:
+  - Welding: blocks pulled components but never welded (fixed upstream by SKO85).
+  - Collecting: blocks listed floating items to collect but never picked them up
+    (fixed in this build, `261019.1`).
 
-The cause is an engine change: the mod moves components through an internal
-"transport" inventory, and the current game build refuses every item added to an
-inventory created the way the old code created it. Every Build and Repair version
-based on the original code is affected.
+  Both now check free space directly and confirm the items arrived, so nothing is
+  lost. SKO85's released v2.5.5 never used that check, so it isn't affected.
+- **Nerfed build costs by default** (see [Block cost](#block-cost)).
 
-This build fixes it: the transport inventory is created with an explicit mass limit,
-and every hand-off checks real free space and confirms the items actually arrived,
-returning anything that didn't so no components are lost.
-
-It is based on SKO85's maintained source (v2.5.6 development code, upstream commit
-`9ab62fe`, October 2026), which also includes about 95 bug fixes since the last Steam
-release (v2.5.5).
+`/nanobars version` shows the build number, so you can confirm which build a server
+is running.
 
 ## Install (single player / hosting from your game)
 
@@ -63,11 +63,15 @@ values over or set them with `/nanobars config` if you had changed any.
 
 ## Block cost
 
-By default the blocks use the original Nanobot build costs. To use the more expensive
-"nerfed" costs instead (10x components plus Superconductors), copy
-`Variants/Nerfed/Data/CubeBlocks.sbc` over `BuildAndRepair/Data/CubeBlocks.sbc`.
-Changing costs on an existing world can make already-built blocks show as
-incomplete, so pick one and stick with it.
+By default the blocks use the "nerfed" costs from SKO85's maintained version: about
+10x the original components, plus Superconductors. For the original, cheaper Nanobot
+costs, copy `Variants/OriginalResources/Data/CubeBlocks.sbc` over
+`BuildAndRepair/Data/CubeBlocks.sbc`.
+
+Changing costs doesn't break blocks that are already built: the game saves how far
+each block is built as a percentage, so they stay complete. But grinding one down
+refunds the new cost, so switching from cheap to nerfed hands out extra components
+for any block built before the switch.
 
 ## Settings and commands
 
@@ -78,4 +82,4 @@ admins can use `/nanobars` chat commands. Full reference:
 ## Credits
 
 - Original mod: Dummy08 — Nanobot Build and Repair System
-- Maintained version and the 1.210 fix: SKO85 — <https://github.com/SKO85/SE-Mods>
+- Maintained version and the welding fix: SKO85 — <https://github.com/SKO85/SE-Mods>

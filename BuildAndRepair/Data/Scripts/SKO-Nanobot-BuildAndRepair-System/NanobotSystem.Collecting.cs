@@ -172,27 +172,37 @@ namespace SKONanobotBuildAndRepairSystem
                 if (definition.HasIntegralAmounts) maxpossibleAmount = MyFixedPoint.Floor(maxpossibleAmount);
                 if (maxpossibleAmount > 0)
                 {
-                    // BUG-260612.24: verify the stack fits BEFORE removing the floating
-                    // object — unreachable with the current volume math, but a silent
-                    // AddItems failure after RemoveFloatingObject would destroy items.
-                    if (!dstInventory.CanItemsBeAdded(maxpossibleAmount, floating.Item.Content.GetId()))
+                    // BUG-260612.24 / BUG-260827.2: do NOT trust CanItemsBeAdded here — it
+                    // returns false for this detached transport inventory in current SE
+                    // builds even when empty (AddItems itself still works), so floating
+                    // objects stayed listed as targets but were never picked up. Check the
+                    // real volume headroom, add first, and take from the floating object
+                    // only what actually landed, so a refused add can never destroy items.
+                    var contentId = floating.Item.Content.GetId();
+                    var transportHeadroom = (float)dstInventory.MaxVolume - (float)dstInventory.CurrentVolume;
+                    if (transportHeadroom < (float)maxpossibleAmount * definition.Volume)
                     {
                         return running;
                     }
 
-                    if (maxpossibleAmount >= floating.Item.Amount)
+                    var amountBefore = dstInventory.GetItemAmount(contentId);
+                    dstInventory.AddItems(maxpossibleAmount, floating.Item.Content);
+                    var addedAmount = dstInventory.GetItemAmount(contentId) - amountBefore;
+                    if (addedAmount <= 0)
+                    {
+                        return running;
+                    }
+
+                    if (addedAmount >= floating.Item.Amount)
                     {
                         MyFloatingObjects.RemoveFloatingObject(floating);
                         isEmpty = true;
                     }
                     else
                     {
-                        floating.Item.Amount = floating.Item.Amount - maxpossibleAmount;
+                        floating.Item.Amount = floating.Item.Amount - addedAmount;
                         floating.RefreshDisplayName();
                     }
-
-                    dstInventory.AddItems(maxpossibleAmount, floating.Item.Content);
-                    remainingVolume -= (float)maxpossibleAmount * definition.Volume;
 
                     running = true;
                 }
